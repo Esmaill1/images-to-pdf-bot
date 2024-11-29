@@ -1,0 +1,4 @@
+python-dotenv==1.0.0
+requests==2.31.0
+img2pdf==0.4.4
+python-telegram-bot==20.5
