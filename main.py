@@ -8,7 +8,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 # Load environment variables
 ##dotenv.load_dotenv()
-TOKEN = "7289833807:AAFOqKJCMDlr2aIdiGVv-L6AYmlLRsQEprQ"
+TOKEN = "token"
 
 # Bot username
 BOT_USERNAME: Final = '@image_to_pdfs_bot'
