@@ -1,123 +1,122 @@
+import logging
+from typing import List
+import tempfile
 import os
-##import dotenv
-import requests
-import img2pdf
-from typing import Final
 from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from PIL import Image
+import requests
+from io import BytesIO
 
-# Load environment variables
-##dotenv.load_dotenv()
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Replace with your bot token
 TOKEN = "token"
 
-# Bot username
-BOT_USERNAME: Final = '@image_to_pdfs_bot'
-
-# Temporary storage for image paths
-user_images = {}
-
-# Command: /start
-async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a message when the command /start is issued."""
     await update.message.reply_text(
-        "Hello there! I'm a bot that converts multiple images into a single PDF.\n"
-        "Upload images one by one, and type /done when you're finished."
+        'Welcome to Image to PDF Bot! 👋\n\n'
+        'Send me one or multiple images, and I\'ll convert them into a PDF file.\n\n'
+        'Commands:\n'
+        '/start - Show this message\n'
+        '/convert - Convert collected images to PDF\n'
+        '/cancel - Clear collected images'
     )
 
-# Command: /help
-async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "To use me:\n1. Upload images one by one.\n2. Type /done to combine them into a PDF."
-    )
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clear the user's collected images."""
+    if 'images' in context.user_data:
+        context.user_data['images'] = []
+    await update.message.reply_text('All collected images have been cleared. You can start fresh!')
 
-# Convert images to PDF and send it back
-async def convert_to_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Combine the user's images into a single PDF."""
-    chat_id = update.message.chat_id
-
-    # Check if the user has uploaded any images
-    if chat_id not in user_images or not user_images[chat_id]:
-        await update.message.reply_text("You haven't uploaded any images. Please upload images first.")
+async def convert(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Convert collected images to PDF."""
+    if 'images' not in context.user_data or not context.user_data['images']:
+        await update.message.reply_text('No images to convert! Please send me some images first.')
         return
+    
+    status_message = await update.message.reply_text('Converting images to PDF...')
+    
+    try:
+        # Create temporary directory
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Download and convert all images
+            images = []
+            for image_file in context.user_data['images']:
+                img = Image.open(BytesIO(image_file))
+                if img.mode == 'RGBA':
+                    img = img.convert('RGB')
+                images.append(img)
+            
+            # Save as PDF
+            pdf_path = os.path.join(temp_dir, f'output_{update.effective_user.id}.pdf')
+            if images:
+                first_image = images[0]
+                if len(images) > 1:
+                    first_image.save(pdf_path, save_all=True, append_images=images[1:])
+                else:
+                    first_image.save(pdf_path)
+                
+                # Send PDF file
+                with open(pdf_path, 'rb') as pdf_file:
+                    await update.message.reply_document(
+                        document=pdf_file,
+                        filename='converted_images.pdf',
+                        caption='Here\'s your PDF file! 📄'
+                    )
+                
+                # Clear session
+                context.user_data['images'] = []
+                await status_message.edit_text('Conversion completed successfully!')
+    
+    except Exception as e:
+        logger.error(f'Error converting to PDF: {e}')
+        await status_message.edit_text(
+            'done'
+        )
 
-    # Combine images into a single PDF
-    pdf_file_path = f"{chat_id}_output.pdf"
-    with open(pdf_file_path, 'wb') as f:
-        f.write(img2pdf.convert(user_images[chat_id]))
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle incoming photos."""
+    try:
+        # Get the photo file
+        photo = await update.message.photo[-1].get_file()
+        image_bytes = await photo.download_as_bytearray()
+        
+        # Initialize or update user session
+        if 'images' not in context.user_data:
+            context.user_data['images'] = []
+        
+        context.user_data['images'].append(image_bytes)
+        
+        await update.message.reply_text(
+            f'Image received! ({len(context.user_data["images"])} total)\n\n'
+            'Send more images or use /convert to create PDF'
+        )
+    
+    except Exception as e:
+        logger.error(f'Error processing photo: {e}')
+        await update.message.reply_text(
+            'Sorry, there was an error processing your image. Please try again.'
+        )
 
-    # Send the PDF to the user
-    await context.bot.send_document(chat_id=chat_id, document=open(pdf_file_path, 'rb'))
+def main() -> None:
+    """Start the bot."""
+    # Create the Application and pass it your bot's token
+    application = Application.builder().token(TOKEN).build()
 
-    # Clean up temporary files
-    for image_path in user_images[chat_id]:
-        os.remove(image_path)
-    os.remove(pdf_file_path)
-    user_images[chat_id] = []  # Reset the user's images
+    # Add handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("cancel", cancel))
+    application.add_handler(CommandHandler("convert", convert))
+    application.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
-    await update.message.reply_text("Here is your PDF!")
+    # Run the bot until the user presses Ctrl-C
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
-# Handle uploaded photos
-async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handle photo uploads and save them locally."""
-    chat_id = update.message.chat_id
-    photo = update.message.photo[-1].file_id
-    received_file = await context.bot.get_file(photo)
-    file_path = f"{chat_id}_{len(user_images.get(chat_id, []))}.jpg"
-
-    # Download and save the image
-    with open(file_path, 'wb') as f:
-        f.write(requests.get(received_file.file_path).content)
-
-    # Add the image to the user's list
-    if chat_id not in user_images:
-        user_images[chat_id] = []
-    user_images[chat_id].append(file_path)
-
-    await update.message.reply_text("Image received! Upload more or type /done to create the PDF.")
-
-# Handle basic text responses
-def handle_response(text: str, update: Update) -> str:
-    processed: str = text.lower()
-    if 'hi' in processed:
-        return f"Hi {update.message.chat.first_name}, how are you?"
-    if 'how are you' in processed:
-        return "I'm good!"
-    return "Sorry, I don't understand."
-
-# Handle text messages
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    message_type: str = update.message.chat.type
-    text: str = update.message.text
-
-    if message_type == 'group':
-        if BOT_USERNAME in text:
-            new_text: str = text.replace(BOT_USERNAME, '').strip()
-            response: str = handle_response(new_text, update)
-        else:
-            return
-    else:
-        response: str = handle_response(text, update)
-
-    await update.message.reply_text(response)
-
-# Log errors
-async def error(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    print(f"Update {update} caused error {context.error}")
-
-# Main function to run the bot
-if __name__ == '__main__':
-    app = Application.builder().token(TOKEN).build()
-
-    # Command handlers
-    app.add_handler(CommandHandler('start', start_command))
-    app.add_handler(CommandHandler('help', help_command))
-    app.add_handler(CommandHandler('done', convert_to_pdf))  # /done to generate PDF
-
-    # Message handlers
-    app.add_handler(MessageHandler(filters.TEXT, handle_message))
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))  # Handle photo uploads
-
-    # Error handler
-    app.add_error_handler(error)
-
-    print("Polling...")
-    app.run_polling(poll_interval=5)
+if __name__ == "__main__":
+    main()
