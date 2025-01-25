@@ -24,7 +24,7 @@ This Telegram bot allows users to upload one or more images, which are then conv
 ## Installation
 1. Clone this repository:
    ```bash
-   git clone https://github.com/yourusername/image-to-pdf-bot.git
+   git clone https://github.com/Esmaill1/images-to-pdf-bot.git
    cd image-to-pdf-bot
    ```
 
