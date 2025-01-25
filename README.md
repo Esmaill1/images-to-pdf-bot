@@ -16,7 +16,7 @@ This Telegram bot allows users to upload one or more images, which are then conv
 
 ## Requirements
 - **Python 3.7+**
-- Telegram Bot API token (get yours from [BotFather](https://core.telegram.org/bots#botfather))
+- Telegram Bot API token (get yours from [BotFather](t.me/BotFather))
 - Required Python libraries:
   - `python-telegram-bot`
   - `Pillow`
